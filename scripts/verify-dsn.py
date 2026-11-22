@@ -29,12 +29,14 @@ def matching_report(message, envelope_id, recipient):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config", type=Path, help="Private gateway config for the sender's IMAP account")
+    parser.add_argument("--checkpoint", type=Path, help="Use the gateway-generated ENVID from the acceptance run")
     args = parser.parse_args()
     upstream = json.loads(args.config.read_text())["IMAP"]
     address = urlsplit("//" + upstream["Address"])
     tls = ssl.create_default_context(cafile=upstream.get("CAFile") or None)
     subject = os.environ["JMAP_ACCEPTANCE_SUBJECT"]
-    envelope_id = f"JMAP DSN =+ {subject.split()[-1]}"
+    envelope_id = (json.loads(args.checkpoint.read_text())["reportKey"] if args.checkpoint
+                   else f"JMAP DSN =+ {subject.split()[-1]}")
     recipient = os.environ["JMAP_RECIPIENT"]
     deadline = time.monotonic() + 20
     with imaplib.IMAP4_SSL(address.hostname, address.port, ssl_context=tls, timeout=10) as client:

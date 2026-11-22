@@ -37,27 +37,28 @@ const (
 )
 
 type Gateway struct {
-	unflushedMoves   *emailMoveState
-	uploads          blobStore
-	history          changeHistory
-	queries          queryHistory
-	config           Config
-	imapTLS, smtpTLS *tls.Config
-	sieveTLS         *tls.Config
-	caldav           *calDAV
-	ledger           *ledger
-	auth             [32]byte
-	admitted         chan struct{}
-	gate             chan struct{}
-	session          object
-	sessionState     string
-	eventSlots       chan struct{}
-	eventsDone       chan struct{}
-	stopEvents       sync.Once
-	eventCache       eventObservation
-	push             *pushStore
-	accounts         map[string]*Gateway
-	identities       map[string]identityProfile
+	unflushedMoves         *emailMoveState
+	uploads                blobStore
+	history                changeHistory
+	queries                queryHistory
+	config                 Config
+	imapTLS, smtpTLS       *tls.Config
+	sieveTLS               *tls.Config
+	caldav                 *calDAV
+	ledger                 *ledger
+	auth                   [32]byte
+	admitted               chan struct{}
+	gate                   chan struct{}
+	session                object
+	sessionState           string
+	eventSlots             chan struct{}
+	eventsDone             chan struct{}
+	stopEvents             sync.Once
+	eventCache             eventObservation
+	push                   *pushStore
+	accounts               map[string]*Gateway
+	identities             map[string]identityProfile
+	checkedDeliveryReports map[string]bool
 }
 
 func newAccount(config Config) (*Gateway, error) {
@@ -506,19 +507,20 @@ func (g *Gateway) start(w http.ResponseWriter, r *http.Request) (*operation, fun
 }
 
 type operation struct {
-	g               *Gateway
-	ctx             context.Context
-	client          *imapclient.Client
-	closeIMAP       func()
-	snapshot        *snapshot
-	snapshotFailure string
-	calendars       map[string]object
-	calendarFailure string
-	created         map[string]string
-	rawBytes        int64
-	implicit        *invocationResult
-	parent          *operation
-	peers           map[string]*operation
+	g                      *Gateway
+	ctx                    context.Context
+	client                 *imapclient.Client
+	closeIMAP              func()
+	snapshot               *snapshot
+	snapshotFailure        string
+	calendars              map[string]object
+	calendarFailure        string
+	created                map[string]string
+	rawBytes               int64
+	implicit               *invocationResult
+	parent                 *operation
+	peers                  map[string]*operation
+	deliveryReportsScanned bool
 }
 
 func (op *operation) loadMail() string {

@@ -187,6 +187,7 @@ func TestConfigurationFailures(t *testing.T) {
 	}{
 		{"token", func(c *Config) { c.Token = "short" }, "invalid listener"},
 		{"metadata vendor", func(c *Config) { c.MailboxMetadataVendor = "vendor.fake/extra" }, "invalid MailboxMetadataVendor"},
+		{"report mailbox without DSN", func(c *Config) { c.SMTPDeliveryReportMailbox = "Reports" }, "SMTPDeliveryReportMailbox requires"},
 		{"address", func(c *Config) { c.SMTP.Address = "mail-without-port" }, "invalid SMTP address"},
 		{"mode", func(c *Config) { c.IMAP.Mode = "cleartext" }, "IMAP requires tls"},
 		{"imap CA", func(c *Config) { c.IMAP.CAFile = filepath.Join(dir, "missing") }, "cannot read upstream CA"},

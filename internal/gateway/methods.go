@@ -173,9 +173,10 @@ func mailboxRecord(b *box) object {
 }
 
 func submissionObject(entry submissionRecord) object {
+	dsn := entry.effectiveDSN()
 	recipients := make([]object, 0, len(entry.recipients()))
 	for index, recipient := range entry.recipients() {
-		recipients = append(recipients, object{"email": recipient, "parameters": entry.DSN.recipient(index)})
+		recipients = append(recipients, object{"email": recipient, "parameters": dsn.recipient(index)})
 	}
 	var deliveryStatus object
 	if len(entry.AcceptedReplies) != 0 {
@@ -184,13 +185,25 @@ func submissionObject(entry submissionRecord) object {
 			deliveryStatus[recipient] = object{"smtpReply": reply, "delivered": "unknown", "displayed": "unknown"}
 		}
 	}
+	reportIDs := make([]string, 0, len(entry.DeliveryReports))
+	for _, report := range entry.DeliveryReports {
+		reportIDs = append(reportIDs, report.BlobID)
+		for recipient, outcome := range report.Outcomes {
+			if status, ok := deliveryStatus[recipient].(object); ok && status["delivered"] == "unknown" && outcome.Delivered != "" {
+				status["delivered"] = outcome.Delivered
+				if outcome.Reply != "" {
+					status["smtpReply"] = outcome.Reply
+				}
+			}
+		}
+	}
 	return object{
 		"id": entry.ID, "emailId": entry.EmailID, "threadId": threadID(entry.EmailID, entry.ThreadID),
 		"identityId": entry.IdentityID, "sendAt": entry.SendAt.UTC().Format(time.RFC3339),
 		"envelope": object{
-			"mailFrom": object{"email": entry.From, "parameters": entry.DSN.sender()},
+			"mailFrom": object{"email": entry.From, "parameters": dsn.sender()},
 			"rcptTo":   recipients,
-		}, "undoStatus": "final", "deliveryStatus": deliveryStatus, "dsnBlobIds": []string{}, "mdnBlobIds": []string{},
+		}, "undoStatus": "final", "deliveryStatus": deliveryStatus, "dsnBlobIds": reportIDs, "mdnBlobIds": []string{},
 	}
 }
 
@@ -594,11 +607,14 @@ func (op *operation) submit(raw json.RawMessage) (string, object) {
 	}
 	entry := submissionRecord{ID: "s-" + randomID(), EmailID: id, ThreadID: email.ThreadID, IdentityID: selectedID,
 		From: identity.Email, Recipients: prepared.recipients, DSN: dsn, SendAt: time.Now().UTC(), Status: "pending"}
+	if dsn != nil && op.g.config.SMTPDeliveryReportMailbox != "" {
+		entry.ReportKey = "jmap-" + op.g.signCursor("dsn:"+entry.ID)
+	}
 	l.records[prepared.key] = entry
 	if l.save() != nil {
 		return fail("serverFail", "Submission could not be reserved")
 	}
-	outcome := sendSMTP(op.ctx, op.g.config.SMTP, op.g.smtpTLS, entry.From, prepared.recipients, prepared.wire, prepared.transport, dsn)
+	outcome := sendSMTP(op.ctx, op.g.config.SMTP, op.g.smtpTLS, entry.From, prepared.recipients, prepared.wire, prepared.transport, entry.effectiveDSN())
 	if outcome.uncertain {
 		return fail("serverFail", "SMTP acceptance is unknown. This message is blocked from resubmission")
 	}

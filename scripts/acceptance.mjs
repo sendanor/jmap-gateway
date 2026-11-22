@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 
 const core = "urn:ietf:params:jmap:core";
 const mail = "urn:ietf:params:jmap:mail";
@@ -425,7 +426,17 @@ if (!emulator) {
     assert.equal(displayed, "unknown");
   }
   if (requestDSN) {
-    assert.deepEqual(record.envelope.mailFrom.parameters, { ENVID: envelopeID, RET: "HDRS" });
+    const reportKey = record.envelope.mailFrom.parameters.ENVID;
+    if (process.env.JMAP_DSN_CHECKPOINT) {
+      assert.match(reportKey, /^jmap-[A-Za-z0-9_-]{43}$/);
+      assert.deepEqual(record.dsnBlobIds, []);
+      await writeFile(process.env.JMAP_DSN_CHECKPOINT, JSON.stringify({
+        reportKey, submissionId: submitted, state: result(lookup, "status", "EmailSubmission/get").state,
+      }), { mode: 0o600 });
+    } else {
+      assert.equal(reportKey, envelopeID);
+    }
+    assert.equal(record.envelope.mailFrom.parameters.RET, "HDRS");
     assert.deepEqual(record.envelope.rcptTo[0].parameters, { NOTIFY: "SUCCESS,FAILURE", ORCPT: `rfc822;${recipient}` });
     console.log("Verified JMAP DSN advertisement, SMTP acceptance and decoded envelope options");
   }

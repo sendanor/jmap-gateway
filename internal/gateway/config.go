@@ -31,6 +31,7 @@ type Config struct {
 	IMAP                      Upstream
 	SMTP                      Upstream
 	SMTPDeliveryNotifications bool
+	SMTPDeliveryReportMailbox string
 	ManageSieve               *Upstream
 	CalDAV                    *CalDAVConfig
 	PushOrigins               []string
@@ -49,6 +50,7 @@ type AccountConfig struct {
 	IMAP                      Upstream
 	SMTP                      Upstream
 	SMTPDeliveryNotifications bool
+	SMTPDeliveryReportMailbox string
 	ManageSieve               *Upstream
 	CalDAV                    *CalDAVConfig
 }
@@ -98,6 +100,9 @@ func (c Config) validate() error {
 	}
 	if c.MailboxMetadataVendor != "" && !metadataVendor.MatchString(c.MailboxMetadataVendor) {
 		return errors.New("invalid MailboxMetadataVendor token")
+	}
+	if c.SMTPDeliveryReportMailbox != "" && (!c.SMTPDeliveryNotifications || strings.ContainsAny(c.SMTPDeliveryReportMailbox, "\r\n\x00")) {
+		return errors.New("SMTPDeliveryReportMailbox requires SMTPDeliveryNotifications and a valid IMAP path")
 	}
 	if len(c.IdentityAliases) >= maxIdentities {
 		return errors.New("too many identity aliases")

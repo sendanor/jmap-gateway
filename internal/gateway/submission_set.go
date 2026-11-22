@@ -30,7 +30,7 @@ func createdSubmission(entry submissionRecord, raw json.RawMessage) object {
 	delete(result, "identityId")
 	var input rawObject
 	_ = json.Unmarshal(raw, &input) // The creation already validated this input.
-	if value := input["envelope"]; value != nil && string(value) != "null" {
+	if value := input["envelope"]; value != nil && string(value) != "null" && entry.ReportKey == "" {
 		delete(result, "envelope")
 	}
 	return result

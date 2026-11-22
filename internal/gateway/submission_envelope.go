@@ -209,7 +209,8 @@ func replaySubmission(entry submissionRecord, identity string, explicit []string
 	if entry.IdentityID != identity {
 		return "", invalidProperty("identityId")
 	}
-	if explicit != nil && (!slices.Equal(explicit, entry.recipients()) || !equalDSN(dsn, entry.DSN)) {
+	if explicit != nil && (!slices.Equal(explicit, entry.recipients()) ||
+		!equalDSN(dsn, entry.DSN) && !equalDSN(dsn, entry.effectiveDSN())) {
 		return "", invalidEnvelope()
 	}
 	return entry.ID, nil

@@ -202,6 +202,7 @@ func (op *operation) state(kind string) string {
 		state = digest(identities)
 		stamps = func() map[string]recordStamp { return stampRecords(identities) }
 	default:
+		op.refreshDeliveryReports()
 		submissions := op.submissions()
 		state = digest(submissions)
 		stamps = func() map[string]recordStamp {
