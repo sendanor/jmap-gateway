@@ -62,7 +62,7 @@ func (g *Gateway) eventOptions(raw string) (eventOptions, bool) {
 }
 
 func (g *Gateway) eventKinds() []string {
-	supported := []string{"Mailbox", "Email", "Thread", "Identity", "EmailSubmission"}
+	supported := []string{"Mailbox", "Email", "EmailDelivery", "Thread", "Identity", "EmailSubmission"}
 	if _, available := g.session["capabilities"].(object)[vacationCapability]; available {
 		supported = append(supported, "VacationResponse")
 	}
@@ -95,11 +95,12 @@ func (g *Gateway) eventStates(ctx context.Context, kinds []string) map[string]st
 	cache := &g.eventCache
 	for _, kind := range kinds {
 		switch kind {
-		case "Mailbox", "Email", "Thread":
+		case "Mailbox", "Email", "EmailDelivery", "Thread":
 			if time.Since(cache.mailAt) >= eventPollInterval {
 				cache.mail = nil
 				if op.loadMail() == "" {
 					cache.mail = map[string]string{"Mailbox": op.state("Mailbox"), "Email": op.state("Email"), "Thread": op.state("Thread")}
+					cache.mail["EmailDelivery"] = g.history.track("Email").DeliveryState
 				}
 				cache.mailAt = time.Now()
 			}

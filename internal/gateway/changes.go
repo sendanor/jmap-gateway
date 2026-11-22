@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	maxHistorySteps   = 1024
-	maxHistoryRecords = 50000
-	maxHistoryFile    = 16 << 20
-	maxChangePage     = 512
+	maxHistorySteps     = 1024
+	maxHistoryRecords   = 50000
+	maxHistoryFile      = 16 << 20
+	maxChangePage       = 512
+	deliveryStateLength = 22
 )
 
 // Each track keeps its current record fingerprints and only the data required
@@ -52,11 +53,12 @@ func openChangeHistory(dir string, files atomicFiles) (changeHistory, error) {
 }
 
 type changeTrack struct {
-	State       string
-	Fingerprint string
-	Records     map[string]recordStamp
-	Past        []reverseStep
-	dirty       bool
+	State         string
+	Fingerprint   string
+	Records       map[string]recordStamp
+	Past          []reverseStep
+	DeliveryState string `json:",omitempty"`
+	dirty         bool
 }
 
 type recordStamp struct {
@@ -91,6 +93,7 @@ func (h *changeHistory) track(kind string) *changeTrack {
 
 func (h *changeHistory) observe(kind, fingerprint string, stamps func() map[string]recordStamp) *changeTrack {
 	track := h.track(kind)
+	added := false
 	if track.Fingerprint != fingerprint {
 		current := stamps()
 		if track.State != "" {
@@ -103,6 +106,7 @@ func (h *changeHistory) observe(kind, fingerprint string, stamps func() map[stri
 			for id := range current {
 				if _, existed := track.Records[id]; !existed {
 					before[id] = recordStamp{}
+					added = true
 				}
 			}
 			track.Past = append(track.Past, reverseStep{track.State, before})
@@ -112,6 +116,12 @@ func (h *changeHistory) observe(kind, fingerprint string, stamps func() map[stri
 			track.State = fingerprint
 		}
 		track.Fingerprint, track.Records = fingerprint, current
+		track.dirty = true
+	}
+	if kind == "Email" && (added || track.DeliveryState == "") {
+		// EmailDelivery is a separate push-only state. Keep its token short
+		// so that all account states fit in one encrypted Web Push record.
+		track.DeliveryState = digest([]string{"EmailDelivery", track.State})[:deliveryStateLength]
 		track.dirty = true
 	}
 	if track.dirty {

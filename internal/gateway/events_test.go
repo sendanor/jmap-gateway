@@ -135,6 +135,95 @@ func TestEventSourceResumesExternalChangesOverTLS(t *testing.T) {
 	}
 }
 
+func TestEmailDeliveryIgnoresFlagMoveAndDeleteOverTLS(t *testing.T) {
+	cfg := testConfig(t)
+	cert, ca := testTLS(t)
+	address, user := serveTestIMAP(t, cfg.IMAP, cert, imap.CapSet{
+		imap.CapIMAP4rev1: {}, imap.CapUIDPlus: {}, imap.CapMove: {},
+	}, nil)
+	cfg.IMAP.Address, cfg.IMAP.CAFile = address, ca
+	appendMessage := func() string {
+		t.Helper()
+		data, err := user.Append("INBOX", strings.NewReader("Subject: Delivery fixture\r\n\r\nBody\r\n"),
+			&imap.AppendOptions{Time: time.Now().UTC()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return emailID(mailboxID(cfg.AccountID, "INBOX"), data.UIDValidity, data.UID)
+	}
+	id := appendMessage()
+	g, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = g.Close() }()
+	server := httptest.NewTLSServer(g)
+	defer func() { server.Close() }()
+	const query = "types=EmailDelivery&closeafter=state&ping=1"
+	first := openTestEvents(t, server, cfg.Token, query, "")
+	baseline := readTestEvent(t, bufio.NewReader(first.Body))
+	first.Body.Close()
+	delivery := func(event receivedEvent) string {
+		t.Helper()
+		changed, _ := event.data["changed"].(map[string]any)
+		kinds, _ := changed[cfg.AccountID].(map[string]any)
+		state, _ := kinds["EmailDelivery"].(string)
+		if event.name != "state" || len(kinds) != 1 || len(state) != deliveryStateLength {
+			t.Fatalf("expected a delivery-only state event: %+v", event)
+		}
+		return state
+	}
+	before := delivery(baseline)
+	set := func(args object) object {
+		t.Helper()
+		args["accountId"] = cfg.AccountID
+		response := gatewayCalls(t, g, cfg.Token, [3]any{"Email/set", args, "set"})[0]
+		if response.Name != "Email/set" || response.Args["oldState"] == response.Args["newState"] ||
+			response.Args["notUpdated"] != nil || response.Args["notDestroyed"] != nil {
+			t.Fatalf("expected an Email state change: %v", response)
+		}
+		return response.Args
+	}
+	set(object{"update": object{id: object{"keywords/$seen": true}}})
+	set(object{"update": object{id: object{
+		"mailboxIds": object{mailboxID(cfg.AccountID, "Plain"): true},
+	}}})
+	removed := set(object{"destroy": []string{id}})
+	server.Close()
+	if err := g.Close(); err != nil {
+		t.Fatal(err)
+	}
+	g, err = New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server = httptest.NewTLSServer(g)
+	resumed := openTestEvents(t, server, cfg.Token, query, baseline.id)
+	defer resumed.Body.Close()
+	reader := bufio.NewReader(resumed.Body)
+	if ping := readTestEvent(t, reader); ping.name != "ping" {
+		t.Fatalf("non-delivery changes triggered a delivery event: %+v", ping)
+	}
+	newID := appendMessage()
+	for {
+		event := readTestEvent(t, reader)
+		if event.name == "ping" {
+			continue
+		}
+		if delivery(event) == before || event.id == baseline.id {
+			t.Fatalf("new message did not advance EmailDelivery: %+v", event)
+		}
+		break
+	}
+	delta := gatewayCalls(t, g, cfg.Token, [3]any{"Email/changes", object{
+		"accountId": cfg.AccountID, "sinceState": removed["newState"],
+	}, "changes"})[0]
+	added, _ := delta.Args["created"].([]any)
+	if delta.Name != "Email/changes" || len(added) != 1 || added[0] != newID {
+		t.Fatalf("new delivery was missing from Email/changes: %v", delta)
+	}
+}
+
 func TestEventSourceLimitsAndShutdown(t *testing.T) {
 	cfg := testConfig(t)
 	g, err := New(cfg)
@@ -143,7 +232,7 @@ func TestEventSourceLimitsAndShutdown(t *testing.T) {
 	}
 	defer g.Close()
 	if options, ok := g.eventOptions("types=*&closeafter=no&ping=4000"); !ok ||
-		options.ping != 300*time.Second || options.close || len(options.kinds) != 5 {
+		options.ping != 300*time.Second || options.close || len(options.kinds) != 6 || !contains(options.kinds, "EmailDelivery") {
 		t.Fatalf("unexpected wildcard and ping options: %+v", options)
 	}
 	for _, input := range []string{
@@ -233,11 +322,11 @@ func TestEventSourceUnavailableAndWriteFailures(t *testing.T) {
 			defer g.Close()
 			gate(g)
 			options, ok := g.eventOptions("types=*&closeafter=no&ping=0")
-			if !ok || len(options.kinds) != 6 {
+			if !ok || len(options.kinds) != 7 || !contains(options.kinds, "VacationResponse") {
 				t.Fatal("optional vacation state is missing from wildcard")
 			}
 			states := g.eventStates(context.Background(), options.kinds)
-			if states["Email"] != "" || states["Identity"] == "" || states["EmailSubmission"] == "" ||
+			if states["Email"] != "" || states["EmailDelivery"] != "" || states["Identity"] == "" || states["EmailSubmission"] == "" ||
 				(states["VacationResponse"] != "") != (scenario == "") {
 				t.Fatalf("backend outage affected unrelated types: %v", states)
 			}

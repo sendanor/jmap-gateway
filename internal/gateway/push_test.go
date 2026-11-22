@@ -21,11 +21,73 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/emersion/go-imap/v2"
 )
 
 type pushDelivery struct {
 	Path, TTL, Encoding, ContentType string
 	Body                             []byte
+}
+
+func TestEmailDeliveryPushSendsOnlyNewEmails(t *testing.T) {
+	cfg := testConfig(t)
+	cert, ca := testTLS(t)
+	address, user := serveTestIMAP(t, cfg.IMAP, cert, imap.CapSet{imap.CapIMAP4rev1: {}}, nil)
+	cfg.IMAP.Address, cfg.IMAP.CAFile = address, ca
+	receiver, deliveries := testPushReceiver(t, &cfg)
+	g, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	g.push.stop()
+	subscription := pushTestAPI(t, g, cfg, "set", object{"create": object{
+		"device": object{"deviceClientId": "delivery-only", "url": receiver.URL, "types": []string{"EmailDelivery"}},
+	}})
+	id := testPushAssignment(t, subscription, "created", "device")["id"].(string)
+	proof := openTestPush(t, receivePush(t, deliveries).Body, nil, nil)
+	if response := pushTestAPI(t, g, cfg, "set", object{"update": object{
+		id: object{"verificationCode": proof["verificationCode"]},
+	}}); response["updated"] == nil {
+		t.Fatalf("delivery subscription verification failed: %v", response)
+	}
+	poll := func() {
+		g.eventCache.mailAt = time.Time{}
+		g.pollPush(context.Background())
+	}
+	nextState := func() string {
+		t.Helper()
+		event := openTestPush(t, receivePush(t, deliveries).Body, nil, nil)
+		kinds := event["changed"].(map[string]any)[cfg.AccountID].(map[string]any)
+		state, _ := kinds["EmailDelivery"].(string)
+		if len(kinds) != 1 || len(state) != deliveryStateLength {
+			t.Fatalf("unexpected delivery push: %v", kinds)
+		}
+		return state
+	}
+	poll()
+	initial := nextState()
+	data, err := user.Append("INBOX", strings.NewReader("Subject: Push arrival\r\n\r\nTest fixture\r\n"), &imap.AppendOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	poll()
+	if got := nextState(); got == initial {
+		t.Fatal("newly added message did not change EmailDelivery")
+	}
+	email := emailID(mailboxID(cfg.AccountID, "INBOX"), data.UIDValidity, data.UID)
+	result := gatewayCalls(t, g, cfg.Token, [3]any{"Email/set", object{"accountId": cfg.AccountID,
+		"update": object{email: object{"keywords/$seen": true}}}, "seen"})[0]
+	if result.Name != "Email/set" || result.Args["updated"] == nil || result.Args["newState"] == result.Args["oldState"] {
+		t.Fatalf("could not change the message flag: %v", result)
+	}
+	poll()
+	select {
+	case d := <-deliveries:
+		t.Fatalf("an Email flag change sent an EmailDelivery push: %s", d.Path)
+	default:
+	}
 }
 
 func testPushReceiver(t *testing.T, cfg *Config) (*httptest.Server, <-chan pushDelivery) {

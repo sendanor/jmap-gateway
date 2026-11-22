@@ -112,7 +112,7 @@ To include a real-server acceptance run, build the gateway with `go build -cover
 | Core §§5.1, 5.5–5.6 | Object projection, query and paging | Partial | Standard Get methods validate projection fields, deduplicate IDs and enforce `maxObjectsInGet`. Query supports positions, anchors, and incremental results for the implemented filters. Type-specific edge cases are tracked separately. |
 | Core §6 | Blob upload, download and `Blob/copy` | Partial | Authenticated upload, exact-byte downloads, stored MIME parts and account-scoped copy work. Complete the download and blob identity audit. |
 | Core §7 | EventSource and HTTPS push | Implemented | Authenticated events, resume cursors, registration, verification, expiry and optional Web Push encryption work for configured types and HTTPS push origins. |
-| Mail §1.5 | `EmailDelivery` push type | Open | Delivery-only notifications are pending. |
+| Mail §1.5 | `EmailDelivery` push type | Partial | EventSource and HTTPS push report newly observed Email IDs. Flags, deletions and gateway-tracked moves leave the delivery state unchanged. Direct IMAP moves can still appear as additions. |
 | Mail §2 | Mailbox discovery, querying and mutations | Partial | IMAP roles, counts, ACLs, hierarchy, subscriptions, query and CRUD work. Gateway renames preserve IDs. External renames can preserve IDs with configured IMAP METADATA. Role changes depend on upstream capabilities. |
 | Mail §3 | `Thread/get`, `Thread/changes` | Implemented | Thread membership, received order and incremental changes use the gateway’s documented threading rules. |
 | Mail §§4.1–4.3 | `Email/get`, `Email/changes` | Partial | Metadata, typed and raw MIME headers, body values, attachment metadata and incremental state work. MIME presentation rules remain under review. |
@@ -186,6 +186,8 @@ Discover `eventSourceUrl` in the session, substitute `types`, `closeafter` and `
 
 While streams are connected, shared snapshots observe IMAP and configured ManageSieve changes at approximately two-second intervals. Notifications can coalesce changes made between observations. A stream can remain open with `closeafter=no` or finish after the first state event with `closeafter=state`. Heartbeats are disabled with `ping=0` and capped at 300 seconds when enabled. The gateway accepts four simultaneous streams per account. Preserve streaming responses through HTTP proxies.
 
+To receive delivery-only notifications, use `types=EmailDelivery` for EventSource or `["EmailDelivery"]` for an HTTPS push subscription. The gateway persists this state with the Email change history. It advances when an IMAP observation finds a new Email, including an imported or newly composed message. Flag changes, deletions and gateway-tracked moves preserve it. Use your cached Email state with `Email/changes` to retrieve new records. Direct IMAP moves can produce a new Email ID and appear as additions. [JMAP Mail push types](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.5)
+
 ## HTTP push subscriptions
 
 Set `PushOrigins` to the HTTPS origins administered for push delivery, for example `["https://push.example.org"]`. The gateway accepts subscription URLs on those origins and verifies the receiver’s certificate and hostname. Set `PushCAFile` only if the receiver uses a private CA. Requests follow no redirects and omit the JMAP bearer token. An empty allowlist leaves HTTP push registration disabled.
@@ -218,6 +220,8 @@ Use `JMAP_SCENARIO=derived-envelope` or `JMAP_SCENARIO=explicit-envelope` with a
 Use `JMAP_SCENARIO=stored-email` to upload and import a plain RFC 5322 message into two folders in a disposable account. The client submits from the inbox without a Draft keyword and replays using both Email IDs. Check recipient delivery with the same IMAP checker.
 
 On a disposable METADATA-enabled account, run `python3 scripts/verify-mailbox-renames.py CONFIG CHECKPOINT before`, restart the gateway, then run the same command with `after`. The test creates a subtree, renames it directly through IMAP, recreates both old paths, and checks the retained and newly assigned IDs through JMAP. Dovecot needs `imap_metadata` enabled and a configured `mail_attribute` dictionary. [Dovecot 2.4.1 METADATA configuration](https://doc.dovecot.org/2.4.1/core/summaries/settings.html#imap-metadata)
+
+On a disposable account whose configured SMTP relay can deliver to its own IMAP inbox, run `python3 scripts/verify-email-delivery.py CONFIG CHECKPOINT before`. Restart the gateway with the same state directory, then run the command with `after`. The test resumes the delivery stream after a flag change, gateway move and deletion, submits a real test message through SMTP, and verifies its arrival through `Email/changes`.
 
 Use `JMAP_SCENARIO=get-contract` on a disposable account with more selectable mailboxes than the advertised `maxObjectsInGet`. The client verifies projection, duplicate IDs, invalid arguments and a full page fetched by result reference, then submits a test message. Add the extra folders through IMAP before running this scenario.
 

@@ -14,6 +14,33 @@ import (
 	"github.com/emersion/go-imap/v2"
 )
 
+func TestEmailDeliveryInitializesExistingHistory(t *testing.T) {
+	dir := t.TempDir()
+	previous := `{"State":"state","Fingerprint":"fingerprint","Records":{"old":{"hash":"record"}},"Past":[]}`
+	if err := os.WriteFile(filepath.Join(dir, "changes-Email.json"), []byte(previous), 0600); err != nil {
+		t.Fatal(err)
+	}
+	history, err := openChangeHistory(dir, localAtomicFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamps := func() map[string]recordStamp {
+		t.Fatal("unchanged email history was recomputed")
+		return nil
+	}
+	track := history.observe("Email", "fingerprint", stamps)
+	if track.State != "state" || len(track.DeliveryState) != deliveryStateLength {
+		t.Fatalf("unexpected migrated state: %+v", track)
+	}
+	reopened, err := openChangeHistory(dir, localAtomicFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.observe("Email", "fingerprint", stamps).DeliveryState; got != track.DeliveryState {
+		t.Fatal("delivery state migration did not persist")
+	}
+}
+
 func TestEmailChangesStableAcrossRestartAndExternalMutations(t *testing.T) {
 	config := testConfig(t)
 	cert, ca := testTLS(t)

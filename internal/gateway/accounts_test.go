@@ -231,12 +231,16 @@ func TestAccountStatesCancellationAndEncodingLimit(t *testing.T) {
 		account := strings.Repeat(string(rune('a'+i)), 255)
 		states[account] = map[string]string{}
 		for _, kind := range append(g.eventKinds(), "VacationResponse") {
-			states[account][kind] = strings.Repeat("s", 43)
+			length := 43
+			if kind == "EmailDelivery" {
+				length = deliveryStateLength
+			}
+			states[account][kind] = strings.Repeat("s", length)
 		}
 	}
 	data, delivered := changedAccountStates(cfg.AccountID, states, nil, nil)
 	wire, err := json.Marshal(object{"@type": "StateChange", "changed": data})
-	if err != nil || len(wire)+103 > pushRecordSize || len(delivered) != (maxAdditionalAccounts+1)*6 {
+	if err != nil || len(wire)+103 > pushRecordSize || len(delivered) != (maxAdditionalAccounts+1)*7 {
 		t.Fatalf("largest multi-account event does not fit in an encrypted push: %d", len(wire))
 	}
 }
