@@ -200,6 +200,14 @@ func smtpConversation(conn net.Conn, config Upstream, cert *tls.Config, failure 
 			if failure == strings.ToLower(command) {
 				return reply("550 rejected")
 			}
+			if command == "RCPT" && failure == "dsn" {
+				if strings.HasPrefix(args, "TO:<plain@") {
+					err = reply("251 2.1.5 Will forward")
+				} else {
+					err = reply("250-2.1.5 Recipient accepted\r\n250 2.1.5 Recipient eligible for relay")
+				}
+				break
+			}
 			if command != "DATA" {
 				err = reply("250 OK")
 				break

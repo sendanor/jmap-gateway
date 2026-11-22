@@ -415,10 +415,15 @@ if (!emulator) {
   const lookup = await call([["EmailSubmission/get", { accountId, ids: [submitted] }, "status"]]);
   const record = result(lookup, "status", "EmailSubmission/get").list[0];
   assert.equal(record?.undoStatus, "final");
-  assert.equal(record.deliveryStatus, null);
   const expectedRecipients = explicitEnvelope ? [secondRecipient, recipient]
     : multipleRecipients ? [recipient, secondRecipient] : [recipient];
   assert.deepEqual(record.envelope.rcptTo.map(({ email }) => email), expectedRecipients);
+  assert.deepEqual(Object.keys(record.deliveryStatus).sort(), [...expectedRecipients].sort());
+  for (const { smtpReply, delivered, displayed } of Object.values(record.deliveryStatus)) {
+    assert.match(smtpReply, /^25[0-9](?: |$)/);
+    assert.equal(delivered, "unknown");
+    assert.equal(displayed, "unknown");
+  }
   if (requestDSN) {
     assert.deepEqual(record.envelope.mailFrom.parameters, { ENVID: envelopeID, RET: "HDRS" });
     assert.deepEqual(record.envelope.rcptTo[0].parameters, { NOTIFY: "SUCCESS,FAILURE", ORCPT: `rfc822;${recipient}` });

@@ -137,10 +137,17 @@ func TestSubmissionDSNOverTLS(t *testing.T) {
 	wireEnvelope := record["envelope"].(map[string]any)
 	from := wireEnvelope["mailFrom"].(map[string]any)
 	recipients := wireEnvelope["rcptTo"].([]any)
-	if record["deliveryStatus"] != nil || !reflect.DeepEqual(from["parameters"], map[string]any{"ENVID": envid, "RET": "HDRS"}) ||
+	if !reflect.DeepEqual(from["parameters"], map[string]any{"ENVID": envid, "RET": "HDRS"}) ||
 		!reflect.DeepEqual(recipients[0].(map[string]any)["parameters"], map[string]any{"NOTIFY": "SUCCESS,FAILURE", "ORCPT": "rfc822;" + recipient}) ||
 		recipients[1].(map[string]any)["parameters"] != nil {
 		t.Fatalf("DSN parameters were not restored as decoded JMAP values: %v", record)
+	}
+	status, _ := record["deliveryStatus"].(map[string]any)
+	if !reflect.DeepEqual(status, map[string]any{
+		recipient:            map[string]any{"smtpReply": "250 2.1.5 Recipient accepted eligible for relay", "delivered": "unknown", "displayed": "unknown"},
+		"plain@example.test": map[string]any{"smtpReply": "251 2.1.5 Will forward", "delivered": "unknown", "displayed": "unknown"},
+	}) {
+		t.Fatalf("SMTP relay replies were not restored after restart: %v", status)
 	}
 	notify = "SUCCESS,FAILURE"
 	if result := submit(); result["created"].(map[string]any)["send"].(map[string]any)["id"] != submission {

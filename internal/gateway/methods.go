@@ -177,13 +177,20 @@ func submissionObject(entry submissionRecord) object {
 	for index, recipient := range entry.recipients() {
 		recipients = append(recipients, object{"email": recipient, "parameters": entry.DSN.recipient(index)})
 	}
+	var deliveryStatus object
+	if len(entry.AcceptedReplies) != 0 {
+		deliveryStatus = make(object, len(entry.AcceptedReplies))
+		for recipient, reply := range entry.AcceptedReplies {
+			deliveryStatus[recipient] = object{"smtpReply": reply, "delivered": "unknown", "displayed": "unknown"}
+		}
+	}
 	return object{
 		"id": entry.ID, "emailId": entry.EmailID, "threadId": threadID(entry.EmailID, entry.ThreadID),
 		"identityId": entry.IdentityID, "sendAt": entry.SendAt.UTC().Format(time.RFC3339),
 		"envelope": object{
 			"mailFrom": object{"email": entry.From, "parameters": entry.DSN.sender()},
 			"rcptTo":   recipients,
-		}, "undoStatus": "final", "deliveryStatus": nil, "dsnBlobIds": []string{}, "mdnBlobIds": []string{},
+		}, "undoStatus": "final", "deliveryStatus": deliveryStatus, "dsnBlobIds": []string{}, "mdnBlobIds": []string{},
 	}
 }
 
@@ -609,6 +616,7 @@ func (op *operation) submit(raw json.RawMessage) (string, object) {
 		return fail(outcome.failure, outcome.description)
 	}
 	entry.Status = "accepted"
+	entry.AcceptedReplies = outcome.acceptedReplies
 	l.records[prepared.key] = entry
 	if l.save() != nil {
 		return fail("serverFail", "SMTP accepted the message. Submission ledger requires operator recovery")

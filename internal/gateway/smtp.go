@@ -11,11 +11,12 @@ import (
 )
 
 type sendOutcome struct {
-	failure     string
-	description string
-	uncertain   bool
-	rejected    []string
-	maxSize     int64
+	failure         string
+	description     string
+	uncertain       bool
+	rejected        []string
+	maxSize         int64
+	acceptedReplies map[string]string
 }
 
 func smtpFailure(err error, rejected string) string {
@@ -81,19 +82,17 @@ func sendSMTP(ctx context.Context, config Upstream, tlsConfig *tls.Config, from 
 		return sendOutcome{failure: smtpFailure(err, "forbiddenMailFrom")}
 	}
 	var rejected []string
+	replies := make(map[string]string, len(to))
 	for index, recipient := range to {
-		var err error
-		if parameters := smtpDSNParameters(dsn.recipient(index)); parameters != "" {
-			err = smtpCommand(client, 25, "RCPT TO:<%s>%s", recipient, parameters)
-		} else {
-			err = client.Rcpt(recipient)
-		}
+		code, message, err := smtpCommand(client, 25, "RCPT TO:<%s>%s", recipient, smtpDSNParameters(dsn.recipient(index)))
 		if err != nil {
 			if failure := smtpFailure(err, "invalidRecipients"); failure != "invalidRecipients" {
 				return sendOutcome{failure: failure}
 			}
 			rejected = append(rejected, recipient)
+			continue
 		}
+		replies[recipient] = formatSMTPReply(code, message)
 	}
 	if len(rejected) != 0 {
 		// Closing before DATA keeps every recipient eligible for a safe retry.
@@ -113,23 +112,38 @@ func sendSMTP(ctx context.Context, config Upstream, tlsConfig *tls.Config, from 
 		}
 		return sendOutcome{failure: "serverFail", uncertain: true}
 	}
-	return sendOutcome{}
+	return sendOutcome{acceptedReplies: replies}
+}
+
+func formatSMTPReply(code int, message string) string {
+	lines := strings.Split(strings.ToValidUTF8(message, "\uFFFD"), "\n")
+	first := strings.Fields(lines[0])
+	fields := append([]string{strconv.Itoa(code)}, first...)
+	for _, line := range lines[1:] {
+		next := strings.Fields(line)
+		common := 0
+		for common < min(len(first), len(next)) && first[common] == next[common] {
+			common++
+		}
+		fields = append(fields, next[common:]...)
+	}
+	return strings.Join(fields, " ")
 }
 
 func smtpMail(client *smtp.Client, from, parameters string) error {
 	if strings.ContainsAny(from, "\r\n") {
 		return errors.New("invalid SMTP sender")
 	}
-	return smtpCommand(client, 250, "MAIL FROM:<%s>%s", from, parameters)
+	_, _, err := smtpCommand(client, 250, "MAIL FROM:<%s>%s", from, parameters)
+	return err
 }
 
-func smtpCommand(client *smtp.Client, expected int, format string, args ...any) error {
+func smtpCommand(client *smtp.Client, expected int, format string, args ...any) (int, string, error) {
 	id, err := client.Text.Cmd(format, args...)
 	if err != nil {
-		return err
+		return 0, "", err
 	}
 	client.Text.StartResponse(id)
 	defer client.Text.EndResponse(id)
-	_, _, err = client.Text.ReadResponse(expected)
-	return err
+	return client.Text.ReadResponse(expected)
 }

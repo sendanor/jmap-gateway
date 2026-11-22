@@ -12,16 +12,17 @@ import (
 )
 
 type submissionRecord struct {
-	ID         string
-	EmailID    string
-	ThreadID   string `json:",omitempty"`
-	IdentityID string
-	From       string
-	To         string      `json:",omitempty"`
-	Recipients []string    `json:",omitempty"`
-	DSN        *dsnOptions `json:",omitempty"`
-	SendAt     time.Time
-	Status     string
+	ID              string
+	EmailID         string
+	ThreadID        string `json:",omitempty"`
+	IdentityID      string
+	From            string
+	To              string            `json:",omitempty"`
+	Recipients      []string          `json:",omitempty"`
+	DSN             *dsnOptions       `json:",omitempty"`
+	AcceptedReplies map[string]string `json:",omitempty"`
+	SendAt          time.Time
+	Status          string
 }
 
 func (entry submissionRecord) recipients() []string {
