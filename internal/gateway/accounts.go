@@ -28,7 +28,8 @@ func New(config Config) (*Gateway, error) {
 			Token: config.Token, AccountID: account.AccountID, StateDir: account.StateDir,
 			IdentityName: account.IdentityName, IdentityEmail: account.IdentityEmail, DraftsMailbox: account.DraftsMailbox,
 			IdentityAliases: account.IdentityAliases, MailboxMetadataVendor: account.MailboxMetadataVendor,
-			IMAP: account.IMAP, SMTP: account.SMTP, ManageSieve: account.ManageSieve, CalDAV: account.CalDAV,
+			IMAP: account.IMAP, SMTP: account.SMTP, SMTPDeliveryNotifications: account.SMTPDeliveryNotifications,
+			ManageSieve: account.ManageSieve, CalDAV: account.CalDAV,
 		}
 		child, err := newAccount(accountConfig)
 		if err != nil {

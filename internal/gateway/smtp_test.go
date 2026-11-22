@@ -34,7 +34,7 @@ func TestSMTPTransportFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 			raw := []byte("Subject: interrupted\r\n\r\n" + strings.Repeat("x", 12*maxRaw))
-			result := sendSMTP(context.Background(), config, clientTLS, "sender@example.test", []string{"recipient@example.test"}, raw, smtpTransport{})
+			result := sendSMTP(context.Background(), config, clientTLS, "sender@example.test", []string{"recipient@example.test"}, raw, smtpTransport{}, nil)
 			if result.failure != "serverUnavailable" || result.uncertain || len(result.rejected) != 0 {
 				t.Fatalf("incorrect transport failure: %+v", result)
 			}

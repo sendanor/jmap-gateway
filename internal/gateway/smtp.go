@@ -26,7 +26,7 @@ func smtpFailure(err error, rejected string) string {
 	return "serverUnavailable"
 }
 
-func sendSMTP(ctx context.Context, config Upstream, tlsConfig *tls.Config, from string, to []string, raw []byte, transport smtpTransport) sendOutcome {
+func sendSMTP(ctx context.Context, config Upstream, tlsConfig *tls.Config, from string, to []string, raw []byte, transport smtpTransport, dsn *dsnOptions) sendOutcome {
 	conn, closeConn, err := dial(ctx, config.Address)
 	if err != nil {
 		return sendOutcome{failure: "serverUnavailable"}
@@ -71,12 +71,24 @@ func sendSMTP(ctx context.Context, config Upstream, tlsConfig *tls.Config, from 
 	if transport.eightBit {
 		parameters += " BODY=8BITMIME"
 	}
+	if dsn != nil {
+		if supported, _ := client.Extension("DSN"); !supported {
+			return sendOutcome{failure: "forbiddenToSend", description: "SMTP relay does not support DSN"}
+		}
+		parameters += smtpDSNParameters(dsn.sender())
+	}
 	if err := smtpMail(client, from, parameters); err != nil {
 		return sendOutcome{failure: smtpFailure(err, "forbiddenMailFrom")}
 	}
 	var rejected []string
-	for _, recipient := range to {
-		if err := client.Rcpt(recipient); err != nil {
+	for index, recipient := range to {
+		var err error
+		if parameters := smtpDSNParameters(dsn.recipient(index)); parameters != "" {
+			err = smtpCommand(client, 25, "RCPT TO:<%s>%s", recipient, parameters)
+		} else {
+			err = client.Rcpt(recipient)
+		}
+		if err != nil {
 			if failure := smtpFailure(err, "invalidRecipients"); failure != "invalidRecipients" {
 				return sendOutcome{failure: failure}
 			}
@@ -108,12 +120,16 @@ func smtpMail(client *smtp.Client, from, parameters string) error {
 	if strings.ContainsAny(from, "\r\n") {
 		return errors.New("invalid SMTP sender")
 	}
-	id, err := client.Text.Cmd("MAIL FROM:<%s>%s", from, parameters)
+	return smtpCommand(client, 250, "MAIL FROM:<%s>%s", from, parameters)
+}
+
+func smtpCommand(client *smtp.Client, expected int, format string, args ...any) error {
+	id, err := client.Text.Cmd(format, args...)
 	if err != nil {
 		return err
 	}
 	client.Text.StartResponse(id)
 	defer client.Text.EndResponse(id)
-	_, _, err = client.Text.ReadResponse(250)
+	_, _, err = client.Text.ReadResponse(expected)
 	return err
 }

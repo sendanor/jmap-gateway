@@ -60,7 +60,7 @@ func TestInternationalRecipientOnlyInEnvelope(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		outcome := sendSMTP(context.Background(), cfg.SMTP, trust, sender, prepared.recipients, prepared.wire, prepared.transport)
+		outcome := sendSMTP(context.Background(), cfg.SMTP, trust, sender, prepared.recipients, prepared.wire, prepared.transport, nil)
 		if err := <-relay.done; err != nil {
 			t.Fatal(err)
 		}

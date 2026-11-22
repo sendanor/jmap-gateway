@@ -174,14 +174,14 @@ func mailboxRecord(b *box) object {
 
 func submissionObject(entry submissionRecord) object {
 	recipients := make([]object, 0, len(entry.recipients()))
-	for _, recipient := range entry.recipients() {
-		recipients = append(recipients, object{"email": recipient, "parameters": nil})
+	for index, recipient := range entry.recipients() {
+		recipients = append(recipients, object{"email": recipient, "parameters": entry.DSN.recipient(index)})
 	}
 	return object{
 		"id": entry.ID, "emailId": entry.EmailID, "threadId": threadID(entry.EmailID, entry.ThreadID),
 		"identityId": entry.IdentityID, "sendAt": entry.SendAt.UTC().Format(time.RFC3339),
 		"envelope": object{
-			"mailFrom": object{"email": entry.From, "parameters": nil},
+			"mailFrom": object{"email": entry.From, "parameters": entry.DSN.sender()},
 			"rcptTo":   recipients,
 		}, "undoStatus": "final", "deliveryStatus": nil, "dsnBlobIds": []string{}, "mdnBlobIds": []string{},
 	}
@@ -535,9 +535,10 @@ func (op *operation) submit(raw json.RawMessage) (string, object) {
 		return "", invalidProperty("identityId")
 	}
 	var explicit []string
+	var dsn *dsnOptions
 	if input.Envelope != nil {
 		var failure object
-		explicit, failure = input.Envelope.recipients(identity.Email)
+		explicit, dsn, failure = input.Envelope.recipients(identity.Email)
 		if failure != nil {
 			return "", failure
 		}
@@ -552,7 +553,7 @@ func (op *operation) submit(raw json.RawMessage) (string, object) {
 	}
 	for _, previous := range l.records {
 		if previous.EmailID == id {
-			return replaySubmission(previous, selectedID, explicit)
+			return replaySubmission(previous, selectedID, explicit, dsn)
 		}
 	}
 	if failure := op.loadMail(); failure != "" {
@@ -578,16 +579,19 @@ func (op *operation) submit(raw json.RawMessage) (string, object) {
 	}
 	for _, key := range []string{prepared.key, prepared.legacyKey} {
 		if previous, ok := l.records[key]; ok {
-			return replaySubmission(previous, selectedID, explicit)
+			return replaySubmission(previous, selectedID, explicit, dsn)
 		}
 	}
+	if dsn != nil && !op.g.config.SMTPDeliveryNotifications {
+		return "", invalidEnvelope()
+	}
 	entry := submissionRecord{ID: "s-" + randomID(), EmailID: id, ThreadID: email.ThreadID, IdentityID: selectedID,
-		From: identity.Email, Recipients: prepared.recipients, SendAt: time.Now().UTC(), Status: "pending"}
+		From: identity.Email, Recipients: prepared.recipients, DSN: dsn, SendAt: time.Now().UTC(), Status: "pending"}
 	l.records[prepared.key] = entry
 	if l.save() != nil {
 		return fail("serverFail", "Submission could not be reserved")
 	}
-	outcome := sendSMTP(op.ctx, op.g.config.SMTP, op.g.smtpTLS, entry.From, prepared.recipients, prepared.wire, prepared.transport)
+	outcome := sendSMTP(op.ctx, op.g.config.SMTP, op.g.smtpTLS, entry.From, prepared.recipients, prepared.wire, prepared.transport, dsn)
 	if outcome.uncertain {
 		return fail("serverFail", "SMTP acceptance is unknown. This message is blocked from resubmission")
 	}

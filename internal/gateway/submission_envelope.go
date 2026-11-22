@@ -28,24 +28,38 @@ type smtpEnvelope struct {
 	To   []envelopeAddress `json:"rcptTo"`
 }
 
-func (envelope *smtpEnvelope) recipients(identity string) ([]string, object) {
+func (envelope *smtpEnvelope) recipients(identity string) ([]string, *dsnOptions, object) {
 	if !validAddress(envelope.From.Email) {
-		return nil, invalidEnvelope()
+		return nil, nil, invalidEnvelope()
 	}
 	if envelope.From.Email != identity {
-		return nil, object{"type": "forbiddenMailFrom"}
+		return nil, nil, object{"type": "forbiddenMailFrom"}
 	}
-	if len(envelope.From.Parameters) != 0 {
-		return nil, invalidEnvelope()
+	sender, valid := dsnParameters(envelope.From.Parameters, "")
+	if !valid {
+		return nil, nil, invalidEnvelope()
 	}
 	recipients := make([]string, 0, len(envelope.To))
 	for _, recipient := range envelope.To {
-		if len(recipient.Parameters) != 0 {
-			return nil, invalidEnvelope()
-		}
 		recipients = append(recipients, recipient.Email)
 	}
-	return recipients, validateRecipients(recipients)
+	if failure := validateRecipients(recipients); failure != nil {
+		return nil, nil, failure
+	}
+	dsn := dsnOptions{Sender: sender, Recipients: make([]map[string]string, len(recipients))}
+	hasOptions := len(sender) != 0
+	for i, recipient := range envelope.To {
+		options, valid := dsnParameters(recipient.Parameters, recipient.Email)
+		if !valid {
+			return nil, nil, invalidEnvelope()
+		}
+		dsn.Recipients[i] = options
+		hasOptions = hasOptions || len(options) != 0
+	}
+	if hasOptions {
+		return recipients, &dsn, nil
+	}
+	return recipients, nil, nil
 }
 
 func invalidEnvelope() object {
@@ -185,7 +199,7 @@ func withoutBcc(header textproto.Header, reader *bufio.Reader) []byte {
 	return wire.Bytes()
 }
 
-func replaySubmission(entry submissionRecord, identity string, explicit []string) (string, object) {
+func replaySubmission(entry submissionRecord, identity string, explicit []string, dsn *dsnOptions) (string, object) {
 	if entry.Status == "destroyed" {
 		return "", object{"type": "forbiddenToSend", "description": "This message was already accepted by SMTP"}
 	}
@@ -195,7 +209,7 @@ func replaySubmission(entry submissionRecord, identity string, explicit []string
 	if entry.IdentityID != identity {
 		return "", invalidProperty("identityId")
 	}
-	if explicit != nil && !slices.Equal(explicit, entry.recipients()) {
+	if explicit != nil && (!slices.Equal(explicit, entry.recipients()) || !equalDSN(dsn, entry.DSN)) {
 		return "", invalidEnvelope()
 	}
 	return entry.ID, nil

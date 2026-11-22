@@ -86,12 +86,14 @@ func serveTestIMAP(t *testing.T, config Upstream, cert *tls.Config, caps imap.Ca
 type smtpFixture struct {
 	received chan string
 	mailFrom chan string
+	rcptTo   chan string
 	done     chan error
 }
 
 func serveTestSMTP(t *testing.T, config Upstream, cert *tls.Config, failure string) (string, *smtpFixture) {
 	t.Helper()
-	fixture := &smtpFixture{received: make(chan string, 1), mailFrom: make(chan string, 1), done: make(chan error, 1)}
+	fixture := &smtpFixture{received: make(chan string, 1), mailFrom: make(chan string, 1),
+		rcptTo: make(chan string, maxSubmissionRecipients), done: make(chan error, 1)}
 	listener := listenTCP(t)
 	go func() {
 		conn, err := listener.Accept()
@@ -101,12 +103,12 @@ func serveTestSMTP(t *testing.T, config Upstream, cert *tls.Config, failure stri
 		}
 		defer conn.Close()
 		_ = conn.SetDeadline(time.Now().Add(4 * time.Second))
-		fixture.done <- smtpConversation(conn, config, cert, failure, fixture.received, fixture.mailFrom)
+		fixture.done <- smtpConversation(conn, config, cert, failure, fixture)
 	}()
 	return listener.Addr().String(), fixture
 }
 
-func smtpConversation(conn net.Conn, config Upstream, cert *tls.Config, failure string, received, mailFrom chan<- string) error {
+func smtpConversation(conn net.Conn, config Upstream, cert *tls.Config, failure string, fixture *smtpFixture) error {
 	secured := config.Mode == "tls"
 	if secured {
 		conn = tls.Server(conn, cert)
@@ -138,6 +140,8 @@ func smtpConversation(conn net.Conn, config Upstream, cert *tls.Config, failure 
 			if secured {
 				extensions := "250-smtp.example.test\r\n"
 				switch failure {
+				case "dsn":
+					extensions += "250-DSN\r\n"
 				case "size":
 					extensions += "250-SIZE 80\r\n"
 				case "smtputf8":
@@ -173,7 +177,10 @@ func smtpConversation(conn net.Conn, config Upstream, cert *tls.Config, failure 
 			}
 		case "MAIL", "RCPT", "DATA":
 			if command == "MAIL" {
-				mailFrom <- args
+				fixture.mailFrom <- args
+			}
+			if command == "RCPT" {
+				fixture.rcptTo <- args
 			}
 			if command == "DATA" && failure == "disconnect-during-data" {
 				return reply("354 send message")
@@ -211,7 +218,7 @@ func smtpConversation(conn net.Conn, config Upstream, cert *tls.Config, failure 
 				}
 				body.WriteString(part)
 			}
-			received <- body.String()
+			fixture.received <- body.String()
 			switch failure {
 			case "lost-reply":
 				return nil

@@ -42,7 +42,7 @@ func TestSMTPNegotiatesRequiredParameters(t *testing.T) {
 			if failure != nil {
 				t.Fatalf("message preparation: %v", failure)
 			}
-			outcome := sendSMTP(context.Background(), cfg.SMTP, tlsConfig, sender, prepared.recipients, prepared.wire, prepared.transport)
+			outcome := sendSMTP(context.Background(), cfg.SMTP, tlsConfig, sender, prepared.recipients, prepared.wire, prepared.transport, nil)
 			if err := <-fixture.done; err != nil {
 				t.Fatal(err)
 			}

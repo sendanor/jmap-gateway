@@ -16,39 +16,41 @@ import (
 )
 
 type Config struct {
-	Listen                string
-	PublicOrigin          string
-	TLSCert               string
-	TLSKey                string
-	StateDir              string
-	AccountID             string
-	Token                 string
-	IdentityName          string
-	IdentityEmail         string
-	IdentityAliases       []string
-	DraftsMailbox         string
-	MailboxMetadataVendor string
-	IMAP                  Upstream
-	SMTP                  Upstream
-	ManageSieve           *Upstream
-	CalDAV                *CalDAVConfig
-	PushOrigins           []string
-	PushCAFile            string
-	AdditionalAccounts    []AccountConfig
+	Listen                    string
+	PublicOrigin              string
+	TLSCert                   string
+	TLSKey                    string
+	StateDir                  string
+	AccountID                 string
+	Token                     string
+	IdentityName              string
+	IdentityEmail             string
+	IdentityAliases           []string
+	DraftsMailbox             string
+	MailboxMetadataVendor     string
+	IMAP                      Upstream
+	SMTP                      Upstream
+	SMTPDeliveryNotifications bool
+	ManageSieve               *Upstream
+	CalDAV                    *CalDAVConfig
+	PushOrigins               []string
+	PushCAFile                string
+	AdditionalAccounts        []AccountConfig
 }
 
 type AccountConfig struct {
-	AccountID             string
-	StateDir              string
-	IdentityName          string
-	IdentityEmail         string
-	IdentityAliases       []string
-	DraftsMailbox         string
-	MailboxMetadataVendor string
-	IMAP                  Upstream
-	SMTP                  Upstream
-	ManageSieve           *Upstream
-	CalDAV                *CalDAVConfig
+	AccountID                 string
+	StateDir                  string
+	IdentityName              string
+	IdentityEmail             string
+	IdentityAliases           []string
+	DraftsMailbox             string
+	MailboxMetadataVendor     string
+	IMAP                      Upstream
+	SMTP                      Upstream
+	SMTPDeliveryNotifications bool
+	ManageSieve               *Upstream
+	CalDAV                    *CalDAVConfig
 }
 
 type Upstream struct {

@@ -17,8 +17,9 @@ type submissionRecord struct {
 	ThreadID   string `json:",omitempty"`
 	IdentityID string
 	From       string
-	To         string   `json:",omitempty"`
-	Recipients []string `json:",omitempty"`
+	To         string      `json:",omitempty"`
+	Recipients []string    `json:",omitempty"`
+	DSN        *dsnOptions `json:",omitempty"`
 	SendAt     time.Time
 	Status     string
 }
@@ -107,6 +108,7 @@ func openLedgerWithFiles(dir, account string, files atomicFiles) (*ledger, error
 			!jmapID.MatchString(entry.EmailID) || !jmapID.MatchString(entry.IdentityID) ||
 			(entry.ThreadID != "" && !jmapID.MatchString(entry.ThreadID)) ||
 			(!validAddress(entry.From) || validateRecipients(entry.recipients()) != nil) ||
+			(entry.DSN != nil && len(entry.DSN.Recipients) != len(entry.recipients())) ||
 			entry.SendAt.IsZero() || (entry.Status != "pending" && entry.Status != "accepted" && entry.Status != "destroyed") {
 			lock.Close()
 			return nil, errors.New("invalid submission record")

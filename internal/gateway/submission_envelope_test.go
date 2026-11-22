@@ -140,7 +140,7 @@ func TestSubmissionEnvelopeValidation(t *testing.T) {
 		{"recipient limit", testEnvelope(sender, make([]string, maxSubmissionRecipients+1)...), "tooManyRecipients"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, failure := tc.envelope.recipients(sender); failure["type"] != tc.code {
+			if _, _, failure := tc.envelope.recipients(sender); failure["type"] != tc.code {
 				t.Errorf("got %v, want %s", failure, tc.code)
 			}
 		})

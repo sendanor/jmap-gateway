@@ -20,6 +20,7 @@ const destroySubmission = scenario === "destroy-submission";
 const writeDraftHeaders = scenario === "draft-headers";
 const forwardAttachment = scenario === "forward-attachment";
 const explicitEnvelope = scenario === "explicit-envelope";
+const requestDSN = scenario === "dsn-envelope";
 const multipleRecipients = explicitEnvelope || scenario === "derived-envelope";
 const secondRecipient = process.env.JMAP_SECOND_RECIPIENT;
 const visibleRecipient = explicitEnvelope ? process.env.JMAP_HEADER_RECIPIENT : recipient;
@@ -27,9 +28,9 @@ const visibleRecipient = explicitEnvelope ? process.env.JMAP_HEADER_RECIPIENT : 
 assert.ok(recipient, "Set JMAP_RECIPIENT to a controlled address");
 assert.ok(emulator || (token && sessionUrl.protocol === "https:"),
   "Set JMAP_TOKEN and use an HTTPS session URL");
-assert.ok(["delivery", "post-submit-actions", "derived-envelope", "explicit-envelope", "stored-email", "creation-ids", "draft-autosave", "query-ties", "get-contract", "destroy-submission", "draft-headers", "forward-attachment",
+assert.ok(["delivery", "post-submit-actions", "derived-envelope", "explicit-envelope", "dsn-envelope", "stored-email", "creation-ids", "draft-autosave", "query-ties", "get-contract", "destroy-submission", "draft-headers", "forward-attachment",
   "smtp-rejection", "smtp-unavailable", "imap-unavailable", "smtp-ambiguous"].includes(scenario));
-assert.ok(!(fileAfterSend || multipleRecipients || sendStored || reuseCreationIDs || autosaveDraft || syncQueryTies || checkGetContract || destroySubmission || writeDraftHeaders || forwardAttachment) || !emulator, "This scenario requires the gateway");
+assert.ok(!(fileAfterSend || multipleRecipients || requestDSN || sendStored || reuseCreationIDs || autosaveDraft || syncQueryTies || checkGetContract || destroySubmission || writeDraftHeaders || forwardAttachment) || !emulator, "This scenario requires the gateway");
 if (multipleRecipients) assert.ok(secondRecipient && secondRecipient !== recipient, "Set a second controlled recipient");
 if (explicitEnvelope) assert.ok(visibleRecipient && ![recipient, secondRecipient].includes(visibleRecipient), "Set a separate To header address");
 
@@ -58,6 +59,7 @@ assert.equal(api.origin, sessionUrl.origin);
 for (const capability of using) assert.ok(Object.hasOwn(session.capabilities, capability));
 const accountId = session.primaryAccounts[mail];
 assert.ok(accountId && accountId === session.primaryAccounts[submission]);
+if (requestDSN) assert.deepEqual(session.accounts[accountId].accountCapabilities[submission].submissionExtensions.DSN, []);
 async function call(methodCalls) {
   return (await readJSON(await request(api, { using, methodCalls }))).methodResponses;
 }
@@ -289,9 +291,13 @@ const find = (inMailbox) => ["Email/query", {
 const read = ["Email/get", {
   accountId, "#ids": { resultOf: "query", name: "Email/query", path: "/ids" }, fetchTextBodyValues: true,
 }, "read"];
+const envelopeID = `JMAP DSN =+ ${marker.split(" ").at(-1)}`;
 const envelope = explicitEnvelope ? {
   mailFrom: { email: identity.email, parameters: null },
   rcptTo: [secondRecipient, recipient].map(email => ({ email, parameters: null })),
+} : requestDSN ? {
+  mailFrom: { email: identity.email, parameters: { envid: envelopeID, ret: "hdrs" } },
+  rcptTo: [{ email: recipient, parameters: { notify: "failure,success", orcpt: `rfc822;${recipient}` } }],
 } : null;
 let creation = ["Email/set", { accountId, create: { message: draft } }, "create"];
 if (sendStored) {
@@ -413,6 +419,11 @@ if (!emulator) {
   const expectedRecipients = explicitEnvelope ? [secondRecipient, recipient]
     : multipleRecipients ? [recipient, secondRecipient] : [recipient];
   assert.deepEqual(record.envelope.rcptTo.map(({ email }) => email), expectedRecipients);
+  if (requestDSN) {
+    assert.deepEqual(record.envelope.mailFrom.parameters, { ENVID: envelopeID, RET: "HDRS" });
+    assert.deepEqual(record.envelope.rcptTo[0].parameters, { NOTIFY: "SUCCESS,FAILURE", ORCPT: `rfc822;${recipient}` });
+    console.log("Verified JMAP DSN advertisement, SMTP acceptance and decoded envelope options");
+  }
   assert.equal((await replay()).created?.retry?.id, submitted);
   if (sendStored) assert.equal((await replay(created.copy.id)).created?.retry?.id, submitted);
 }

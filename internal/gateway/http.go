@@ -108,6 +108,10 @@ func newAccount(config Config) (*Gateway, error) {
 	}
 	account := config.AccountID
 	base := config.PublicOrigin
+	extensions := object{}
+	if config.SMTPDeliveryNotifications {
+		extensions["DSN"] = []string{}
+	}
 	g.session = object{
 		"capabilities": object{
 			core: object{
@@ -126,7 +130,7 @@ func newAccount(config Config) (*Gateway, error) {
 					"maxSizeMailboxName": maxMailboxName, "maxSizeAttachmentsPerEmail": maxDraftAttachmentBytes,
 					"emailQuerySortOptions": emailQuerySortOptions, "mayCreateTopLevelMailbox": true,
 				},
-				submissionCapability: object{"maxDelayedSend": 0, "submissionExtensions": object{}},
+				submissionCapability: object{"maxDelayedSend": 0, "submissionExtensions": extensions},
 			},
 		}},
 		"primaryAccounts": object{mailCapability: account, submissionCapability: account},
